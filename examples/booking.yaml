@@ -1,0 +1,71 @@
+# Double booking: two different customers try to book the same free seat at the same moment.
+# Invariant: exactly one committed booking; the losing customer sees "Seat unavailable".
+#
+#   npx raceui-playground --mode vulnerable     # in another terminal (or --mode fixed)
+#   RACEUI_FIXTURE_TOKEN=dev-token raceui run examples/booking.yaml
+version: 1
+name: concurrent-seat-booking
+baseUrl: http://127.0.0.1:3000
+
+actors:
+  - id: user-a
+    prepare:
+      - navigate: /login?user=alice&next=/booking/seat-01
+      - waitFor: '[data-testid="confirm-booking"]'
+    race:
+      click: '[data-testid="confirm-booking"]'
+
+  - id: user-b
+    prepare:
+      - navigate: /login?user=bob&next=/booking/seat-01
+      - waitFor: '[data-testid="confirm-booking"]'
+    race:
+      click: '[data-testid="confirm-booking"]'
+
+fixtures:
+  reset:
+    method: POST
+    path: /test-support/reset
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+  baseline:
+    get: /test-support/seat-01/booking-count
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+    pointer: /count
+    equals: 0
+
+timing:
+  mode: simultaneous
+  maxDispatchSkewMs: 100
+  barrierTimeoutMs: 15000
+  actionTimeoutMs: 5000
+  requestFilter:
+    method: POST
+    path: /api/bookings
+
+assertions:
+  settleMs: 300
+  timeoutMs: 3000
+  checks:
+    - ui:
+        text: Booking successful
+        count:
+          equals: 1
+    - ui:
+        text: Seat unavailable
+        count:
+          equals: 1
+    - api:
+        get: /test-support/seat-01/booking-count
+        headers:
+          Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+        pointer: /count
+        equals: 1
+        pollMs: 250
+
+run:
+  repeat: 10
+  seed: 42
+  browser: chromium
+  evidence: on-failure

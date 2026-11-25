@@ -1,0 +1,62 @@
+# Duplicate submission / same-account conflict: one employee clocks in from two browser
+# sessions (two devices) at the same time. Both contexts share one identity on purpose.
+# Invariant: at most one attendance record per employee per day.
+version: 1
+name: duplicate-attendance
+baseUrl: http://127.0.0.1:3000
+
+actors:
+  - id: laptop
+    prepare:
+      - navigate: /login?user=emp-1&next=/attendance
+      - waitFor: '[data-testid="clock-in"]'
+    race:
+      click: '[data-testid="clock-in"]'
+  - id: phone
+    prepare:
+      - navigate: /login?user=emp-1&next=/attendance
+      - waitFor: '[data-testid="clock-in"]'
+    race:
+      click: '[data-testid="clock-in"]'
+
+fixtures:
+  reset:
+    method: POST
+    path: /test-support/reset
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+  baseline:
+    get: /test-support/attendance/emp-1/count
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+    pointer: /count
+    equals: 0
+
+timing:
+  mode: staggered
+  offsetsMs:
+    laptop: 0
+    phone: 10
+  maxDispatchSkewMs: 50
+  requestFilter:
+    method: POST
+    path: /api/attendance
+
+assertions:
+  settleMs: 300
+  timeoutMs: 3000
+  checks:
+    - api:
+        get: /test-support/attendance/emp-1/count
+        headers:
+          Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+        pointer: /count
+        max: 1
+    - ui:
+        text: Clocked in
+        count:
+          max: 1
+
+run:
+  repeat: 5
+  seed: 1

@@ -1,0 +1,49 @@
+# Double booking with independent resources: every attempt races on a fresh seat
+# ("seat-<run-id>-<attempt>") instead of resetting shared state.
+version: 1
+name: concurrent-seat-booking-unique
+baseUrl: http://127.0.0.1:3000
+
+actors:
+  - id: user-a
+    prepare:
+      - navigate: /login?user=alice&next=/booking/${RESOURCE_ID}
+      - waitFor: '[data-testid="confirm-booking"]'
+    race:
+      click: '[data-testid="confirm-booking"]'
+  - id: user-b
+    prepare:
+      - navigate: /login?user=bob&next=/booking/${RESOURCE_ID}
+      - waitFor: '[data-testid="confirm-booking"]'
+    race:
+      click: '[data-testid="confirm-booking"]'
+
+fixtures:
+  strategy: unique
+  resourceTemplate: seat-${RUN_ID}-${ATTEMPT}
+  baseline:
+    get: /test-support/${RESOURCE_ID}/booking-count
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+    pointer: /count
+    equals: 0
+
+timing:
+  mode: jitter
+  jitterMs: 20
+  maxDispatchSkewMs: 50
+
+assertions:
+  settleMs: 300
+  timeoutMs: 3000
+  checks:
+    - api:
+        get: /test-support/${RESOURCE_ID}/booking-count
+        headers:
+          Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+        pointer: /count
+        max: 1
+
+run:
+  repeat: 5
+  seed: 7

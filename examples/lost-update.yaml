@@ -1,0 +1,64 @@
+# Lost update: two editors open the same record (version 1) and save different values.
+# Declared conflict policy: optimistic locking, so exactly one save wins and the other
+# sees a conflict; the record is written exactly once.
+version: 1
+name: lost-update
+baseUrl: http://127.0.0.1:3000
+
+actors:
+  - id: editor-a
+    prepare:
+      - navigate: /login?user=ana&next=/records/1
+      - fill:
+          selector: '[data-testid="record-value"]'
+          value: value from editor A
+    race:
+      click: '[data-testid="save-record"]'
+  - id: editor-b
+    prepare:
+      - navigate: /login?user=ben&next=/records/1
+      - fill:
+          selector: '[data-testid="record-value"]'
+          value: value from editor B
+    race:
+      click: '[data-testid="save-record"]'
+
+fixtures:
+  reset:
+    method: POST
+    path: /test-support/reset
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+  baseline:
+    get: /test-support/records/1
+    headers:
+      Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+    pointer: /writes
+    equals: 0
+
+timing:
+  mode: simultaneous
+  maxDispatchSkewMs: 100
+
+assertions:
+  settleMs: 300
+  timeoutMs: 3000
+  checks:
+    - ui:
+        text: Saved
+        count:
+          equals: 1
+    - ui:
+        text: 'Conflict: record was modified by someone else'
+        count:
+          equals: 1
+    - api:
+        get: /test-support/records/1
+        headers:
+          Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'
+        pointer: /writes
+        equals: 1
+
+run:
+  repeat: 5
+  seed: 3

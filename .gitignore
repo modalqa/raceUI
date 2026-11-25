@@ -1,0 +1,15 @@
+node_modules/
+dist/
+artifacts/
+raceui-artifacts/
+coverage/
+*.log
+.env
+.env.*
+# Playwright storage states / credentials must never be committed
+auth/
+**/auth/*.json
+*.storageState.json
+
+# Original logo source (copied to assets/raceui-logo.png)
+Logo RaceUI dengan Ikon Peramban Balap.png
