@@ -46,9 +46,10 @@ no LLM dependency.
    ```
 
    Use `raceui init` to get a commented template. Run `raceui install-browser` once if Chromium is
-   missing.
+   missing. Add `--trace on-failure` only when the user wants deep debugging: traces are unredacted.
 7. **Read the actual JSON report** (path printed as `Report: .../report.json`, or use `--json`) and
-   cite evidence paths (`attempt-005/user-a.png`, `requests.json`, `timing.json`).
+   cite evidence paths (`attempt-005/user-a.png`, `requests.json`, `timing.json`). Point humans to
+   `report.html` in the same directory for an offline visual summary.
    - Exit `1` / `FAIL`: confirmed invariant violation. `failureKind: ui-outcome-mismatch` means only
      UI text disagreed; say so rather than claiming persisted corruption.
    - Exit `3` / `INCONCLUSIVE`: the experiment was invalid or incomplete (barrier timeout, locator
@@ -70,6 +71,7 @@ baseUrl: http://127.0.0.1:3000          # all paths below are relative to this
 actors:                                 # 2-5, unique ids
   - id: user-a
     storageState: ./auth/user-a.json    # optional Playwright storage state (relative to this file)
+    # sharedIdentity: true              # required when two actors use the same storageState file
     prepare:                            # runs before the barrier; must NOT consume the resource
       - navigate: /booking/seat-01
       - fill: { selector: '#note', value: 'hi' }
@@ -100,7 +102,7 @@ assertions:
   timeoutMs: 5000                       # bounded observation window
   pollMs: 250
   checks:                               # at least one
-    - ui: { text: Booking successful, count: { equals: 1 } }   # counts actor pages showing exact visible text
+    - ui: { label: successful bookings, text: Booking successful, count: { equals: 1 } }   # counts actor pages showing exact visible text
     - ui: { actor: user-b, text: Seat unavailable }            # single actor: visible (count defaults to equals 1)
     - api:                                                     # read-only GET + JSON Pointer
         get: /test-support/seat-01/booking-count
@@ -114,9 +116,18 @@ run:
   seed: 42                              # reproduces planned offsets (not OS/network/server ordering)
   browser: chromium
   evidence: on-failure                  # on-failure | always | none
+  trace: off                            # off | on-failure | always (unredacted Playwright traces, local only)
 ```
 
 Unknown keys, absolute URLs, arbitrary JavaScript and unresolved `${VAR}` placeholders are rejected.
+
+## Installing this skill
+
+```bash
+raceui install-skill --agent claude   # .claude/skills/raceui/SKILL.md
+raceui install-skill --agent codex    # .agents/skills/raceui/SKILL.md
+raceui install-skill --agent cursor   # .cursor/skills/raceui/SKILL.md
+```
 
 ## Example prompt
 

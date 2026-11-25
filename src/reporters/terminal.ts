@@ -23,11 +23,11 @@ function statusColor(p: ReturnType<typeof paint>, status: string): string {
   return p.yellow(status);
 }
 
-export function header(report: Pick<RunReport, 'tool' | 'scenario' | 'seed' | 'summary'>, actors: number): string {
+export function header(h: { version: string; scenario: string; actors: number; requested: number; seed: number }): string {
   return [
-    `RaceUI v${report.tool.version}`,
-    `Scenario: ${report.scenario}`,
-    `Actors: ${actors} | Requested attempts: ${report.summary.requested} | Seed: ${report.seed}`,
+    `RaceUI v${h.version}`,
+    `Scenario: ${h.scenario}`,
+    `Actors: ${h.actors} | Requested attempts: ${h.requested} | Seed: ${h.seed}`,
   ].join('\n');
 }
 
@@ -39,16 +39,26 @@ function attemptDetails(a: AttemptResult, p: ReturnType<typeof paint>): string[]
     lines.push(`  ${measure} [${t.quality}, threshold ${t.thresholdMs} ms]`);
   }
   for (const as of a.assertions.filter((x) => x.status !== 'PASS')) {
-    lines.push(`  ${as.status} ${as.source}`);
-    lines.push(`    Expected: ${describeExpected(as.expected as Record<string, unknown>)}  Observed: ${JSON.stringify(as.observed)}${as.matchedActors?.length ? ` (${as.matchedActors.join(', ')})` : ''}`);
+    const who = as.matchedActors?.length ? ` (${as.matchedActors.join(', ')})` : '';
+    if (as.label) {
+      // PRD style: "Expected committed bookings: 1" / "Observed committed bookings: 2"
+      lines.push(`  ${as.status} ${as.source}`);
+      lines.push(`    Expected ${as.label}: ${describeExpected(as.comparison)}`);
+      lines.push(`    Observed ${as.label}: ${as.observed === null ? `n/a (${as.reason ?? 'error'})` : JSON.stringify(as.observed)}${who}`);
+    } else {
+      lines.push(`  ${as.status} ${as.source}`);
+      lines.push(`    Expected: ${describeExpected(as.comparison)}  Observed: ${as.observed === null ? `n/a (${as.reason ?? 'error'})` : JSON.stringify(as.observed)}${who}`);
+    }
   }
   for (const r of a.reasons.filter((r) => !a.assertions.some((as) => r.startsWith(as.source)))) lines.push(`  ${r}`);
   for (const n of a.notes.filter((n) => !n.startsWith('No violation'))) lines.push(p.gray(`  Note: ${n}`));
   if (a.evidenceDir) lines.push(`  Evidence: ${a.evidenceDir}/`);
+  const traces = a.evidence.filter((e) => e.endsWith('.zip'));
+  if (traces.length) lines.push(p.gray(`  Trace: ${traces.join(', ')} (open with: npx playwright show-trace <file>)`));
   return lines;
 }
 
-export function summary(report: RunReport, color: boolean, cwd = process.cwd(), reportPath?: string): string {
+export function summary(report: RunReport, color: boolean, cwd = process.cwd(), reportPath?: string, htmlPath?: string): string {
   const p = paint(color);
   const s = report.summary;
   const out: string[] = [
@@ -65,6 +75,7 @@ export function summary(report: RunReport, color: boolean, cwd = process.cwd(), 
   for (const e of report.errors) out.push('', p.yellow(`Run note: ${e}`));
   out.push('', `Result: ${statusColor(p, report.status)}${report.interrupted ? ' (interrupted)' : ''} (exit ${report.exitCode})`);
   if (reportPath) out.push(`Report: ${path.relative(cwd, reportPath) || reportPath}`);
+  if (htmlPath) out.push(`HTML:   ${path.relative(cwd, htmlPath) || htmlPath}`);
   if (report.status === 'PASS') out.push(p.gray('No violation was detected in the executed attempts. This does not prove the system is race-free.'));
   return out.join('\n');
 }

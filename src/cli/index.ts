@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -7,6 +9,8 @@ import { Command, CommanderError, InvalidArgumentError, Option } from 'commander
 import { EXIT } from '../assertions/classify.js';
 import { resolveRunConfig, runScenario } from '../engine/runner.js';
 import { header, paint, summary } from '../reporters/terminal.js';
+import { renderHtmlReport } from '../reporters/html.js';
+import { REPORT_SCHEMA_VERSION, type RunReport } from '../reporters/types.js';
 import { checkRepeatPolicy, ConfigError, loadScenario } from '../schema/load.js';
 import { LIMITS } from '../schema/scenario.js';
 import { PolicyError } from '../security/origin.js';
@@ -67,7 +71,9 @@ Examples:
   raceui init
   raceui validate ./booking.yaml
   raceui run ./booking.yaml --repeat 20 --seed 42
-  raceui run ./booking.yaml --allow-origin https://staging.example.com`,
+  raceui run ./booking.yaml --allow-origin https://staging.example.com
+  raceui report artifacts/raceui/<run-id>/report.json
+  raceui install-skill --agent claude`,
   );
 
 program
@@ -144,13 +150,16 @@ program
   .addOption(new Option('--evidence <mode>', 'override evidence mode').choices(['on-failure', 'always', 'none']))
   .option('--stop-on-fail', 'stop after the first confirmed failed attempt')
   .option('--allow-origin <origin>', 'authorize a non-loopback target origin (repeatable)', collect, [])
+  .addOption(new Option('--trace <mode>', 'opt-in raw Playwright traces per actor (UNREDACTED, kept locally)').choices(['off', 'on-failure', 'always']))
+  .option('--no-html', 'do not write the static report.html')
   .option('--json', 'print the JSON report to stdout instead of the terminal summary')
   .option('--no-logo', 'do not print the logo banner')
-  .action(async (file: string, o: { repeat?: number; seed?: number; headed?: boolean; output: string; evidence?: 'on-failure' | 'always' | 'none'; stopOnFail?: boolean; allowOrigin: string[]; json?: boolean; logo: boolean }) => {
+  .action(async (file: string, o: { repeat?: number; seed?: number; headed?: boolean; output: string; evidence?: 'on-failure' | 'always' | 'none'; trace?: 'off' | 'on-failure' | 'always'; html: boolean; stopOnFail?: boolean; allowOrigin: string[]; json?: boolean; logo: boolean }) => {
     let loaded;
+    let traceMode: string;
     try {
       loaded = loadScenario(file);
-      resolveRunConfig(loaded, { repeat: o.repeat, seed: o.seed ?? 0, allowOrigins: o.allowOrigin });
+      traceMode = resolveRunConfig(loaded, { repeat: o.repeat, seed: o.seed ?? 0, allowOrigins: o.allowOrigin, trace: o.trace }).trace;
     } catch (e) {
       process.exitCode = reportConfigError(e);
       return;
@@ -168,8 +177,9 @@ program
     process.on('SIGTERM', onSigint);
 
     const log = o.json ? () => undefined : out;
-    if (!o.json) {
-      if (o.logo) log(renderLogo(VERSION, color) + '\n');
+    if (!o.json && o.logo) log(renderLogo(VERSION, color) + '\n');
+    if (traceMode !== 'off') {
+      err(p.yellow(`Warning: Playwright tracing is enabled (${traceMode}). Trace files are NOT redacted and can contain cookies, tokens, request bodies and page content. They stay in the local run directory; never upload or share them casually.`));
     }
     try {
       const outcome = await runScenario(loaded, {
@@ -178,17 +188,21 @@ program
         seed: o.seed,
         headed: o.headed,
         evidence: o.evidence,
+        trace: o.trace,
+        html: o.html,
         stopOnFail: o.stopOnFail,
         allowOrigins: o.allowOrigin,
         signal: ctrl.signal,
         onProgress: o.json ? undefined : (m) => log(p.gray(m)),
+        onStart: (info) => {
+          log(header({ version: VERSION, scenario: loaded.scenario.name, actors: info.actors, requested: info.repeat, seed: info.seed }));
+          log('');
+        },
       });
       if (o.json) {
         out(JSON.stringify(outcome.report, null, 2));
       } else {
-        log('');
-        log(header(outcome.report, loaded.scenario.actors.length));
-        log(summary(outcome.report, color, process.cwd(), outcome.reportPath));
+        log(summary(outcome.report, color, process.cwd(), outcome.reportPath, outcome.htmlPath));
       }
       process.exitCode = outcome.report.exitCode;
     } catch (e) {
@@ -202,6 +216,67 @@ program
       process.off('SIGINT', onSigint);
       process.off('SIGTERM', onSigint);
     }
+  });
+
+program
+  .command('report')
+  .argument('<report.json>', 'a RaceUI JSON report')
+  .description('generate a static offline HTML report from a JSON report (no server needed)')
+  .option('-o, --out <file>', 'output file (default: report.html next to the JSON report)')
+  .action((file: string, o: { out?: string }) => {
+    const src = path.resolve(file);
+    let data: RunReport;
+    try {
+      data = JSON.parse(readFileSync(src, 'utf8')) as RunReport;
+    } catch (e) {
+      err(p.red(`Cannot read report: ${(e as Error).message}`));
+      process.exitCode = EXIT.CONFIG;
+      return;
+    }
+    if (data.schemaVersion !== REPORT_SCHEMA_VERSION || !Array.isArray(data.attempts)) {
+      err(p.red(`Unsupported report (expected schemaVersion ${REPORT_SCHEMA_VERSION}).`));
+      process.exitCode = EXIT.CONFIG;
+      return;
+    }
+    const dest = path.resolve(o.out ?? path.join(path.dirname(src), 'report.html'));
+    writeFileSync(dest, renderHtmlReport(data), 'utf8');
+    out(`${p.green('Wrote')} ${path.relative(process.cwd(), dest) || dest}`);
+    if (path.dirname(dest) !== path.dirname(src)) out(p.gray('Note: evidence links are relative; keep report.html in the run directory to see screenshots.'));
+  });
+
+const SKILL_TARGETS: Record<string, { project: string; global: string }> = {
+  claude: { project: '.claude/skills/raceui', global: '.claude/skills/raceui' },
+  codex: { project: '.agents/skills/raceui', global: '.agents/skills/raceui' },
+  cursor: { project: '.cursor/skills/raceui', global: '.cursor/skills/raceui' },
+};
+
+program
+  .command('install-skill')
+  .description('install the RaceUI Agent Skill (SKILL.md) for a coding agent')
+  .addOption(new Option('--agent <agent>', 'target agent').choices(['claude', 'codex', 'cursor']).makeOptionMandatory())
+  .option('--global', 'install for the current user instead of the current project')
+  .option('--dir <path>', 'project directory (default: current directory)', '.')
+  .option('-f, --force', 'overwrite an existing installed skill')
+  .action((o: { agent: string; global?: boolean; dir: string; force?: boolean }) => {
+    const target = SKILL_TARGETS[o.agent]!;
+    const base = o.global ? homedir() : path.resolve(o.dir);
+    const destDir = path.join(base, o.global ? target.global : target.project);
+    const dest = path.join(destDir, 'SKILL.md');
+    const source = fileURLToPath(new URL('../../skills/raceui/SKILL.md', import.meta.url));
+    if (!existsSync(source)) {
+      err(p.red(`Bundled skill not found at ${source}`));
+      process.exitCode = 1;
+      return;
+    }
+    if (existsSync(dest) && !o.force) {
+      err(p.red(`Refusing to overwrite ${dest} (use --force).`));
+      process.exitCode = EXIT.CONFIG;
+      return;
+    }
+    mkdirSync(destDir, { recursive: true });
+    copyFileSync(source, dest);
+    out(`${p.green('Installed')} RaceUI skill for ${o.agent}: ${dest}`);
+    out(p.gray('The agent also needs the raceui CLI on PATH (npm install -g raceui, or npx raceui).'));
   });
 
 program

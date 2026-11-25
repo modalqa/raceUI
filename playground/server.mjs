@@ -37,8 +37,10 @@ function page(title, user, body, script = '') {
 button{background:#0a6cf0;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:16px;cursor:pointer}
 button:disabled{opacity:.5}.result{margin-top:16px;font-size:18px;font-weight:600}.ok{color:#1a7f37}.err{color:#cf222e}
 input{font-size:16px;padding:8px;border:1px solid #ccc;border-radius:6px}header{color:#666;font-size:14px;margin-bottom:24px}</style>
-</head><body><header>RaceUI playground &middot; signed in as <b data-testid="current-user">${esc(user ?? 'anonymous')}</b></header>
-${body}<script>${script}</script></body></html>`;
+</head><body><header>RaceUI playground &middot; signed in as <b data-testid="current-user">${esc(user ?? 'anonymous')}</b>
+&middot; local note: <span data-testid="local-note"></span></header>
+${body}<script>document.querySelector('[data-testid="local-note"]').textContent = localStorage.getItem('pg_note') || '-';
+${script}</script></body></html>`;
 }
 
 const ACTION_SCRIPT = (endpoint, payload, okMsg, conflictMsg, btn) => `
@@ -156,6 +158,10 @@ export function createPlayground({ mode = 'vulnerable', delay = 150, token = pro
 <label>Value <input data-testid="record-value" id="value" value="${esc(r.value)}"></label>
 <button data-testid="save-record">Save</button><div id="result" class="result" role="status"></div>`,
         ACTION_SCRIPT(`/api/records/${m[1]}`, `{ value: document.getElementById('value').value, version: ${r.version} }`, 'Saved', 'Conflict: record was modified by someone else', 'save-record')));
+    }
+
+    if (req.method === 'GET' && p === '/api/me') {
+      return send(res, 200, { user: user ?? null });
     }
 
     // ---- mutating API -------------------------------------------------------------------

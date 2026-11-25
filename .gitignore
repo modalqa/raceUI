@@ -13,3 +13,4 @@ auth/
 
 # Original logo source (copied to assets/raceui-logo.png)
 Logo RaceUI dengan Ikon Peramban Balap.png
+.playwright-mcp/

@@ -18,6 +18,7 @@ import {
   type RunReport,
 } from '../reporters/types.js';
 import { VERSION } from '../version.js';
+import { renderHtmlReport } from '../reporters/html.js';
 import { Barrier, BarrierError } from './barrier.js';
 import { FixtureManager } from './fixtures.js';
 import { attemptSeed, evaluateTiming, planOffsets, randomSeed, sleepUntil } from './scheduler.js';
@@ -29,16 +30,23 @@ export interface RunOptions {
   seed?: number;
   headed?: boolean;
   evidence?: EvidenceMode;
+  /** Opt-in raw Playwright traces (FR-15). */
+  trace?: 'off' | 'on-failure' | 'always';
+  /** Also write a static offline report.html next to report.json (FR-16). Default true. */
+  html?: boolean;
   stopOnFail?: boolean;
   allowOrigins?: string[];
   signal?: AbortSignal;
   /** Progress lines (attempt started / finished). */
   onProgress?: (msg: string) => void;
+  /** Called once the run is configured (seed resolved), before the browser starts. */
+  onStart?: (info: { runId: string; runDir: string; seed: number; repeat: number; actors: number }) => void;
 }
 
 export interface RunOutcome {
   report: RunReport;
   reportPath: string;
+  htmlPath?: string;
   runDir: string;
 }
 
@@ -67,7 +75,7 @@ export function newRunId(now = new Date()): string {
  * Validates options (repeat policy, target policy) without launching anything. Throws
  * ConfigError / PolicyError, which map to exit code 2.
  */
-export function resolveRunConfig(loaded: LoadedScenario, opts: Pick<RunOptions, 'repeat' | 'seed' | 'allowOrigins' | 'evidence' | 'headed'>) {
+export function resolveRunConfig(loaded: LoadedScenario, opts: Pick<RunOptions, 'repeat' | 'seed' | 'allowOrigins' | 'evidence' | 'headed' | 'trace'>) {
   const s = loaded.scenario;
   const repeat = opts.repeat ?? s.run.repeat;
   if (!Number.isInteger(repeat) || repeat < 1 || repeat > LIMITS.maxRepeat) {
@@ -83,11 +91,13 @@ export function resolveRunConfig(loaded: LoadedScenario, opts: Pick<RunOptions, 
   if (opts.seed !== undefined) overrides.seed = opts.seed;
   if (opts.evidence !== undefined) overrides.evidence = opts.evidence;
   if (opts.headed !== undefined) overrides.headed = opts.headed;
+  if (opts.trace !== undefined) overrides.trace = opts.trace;
   return {
     repeat,
     seed,
     policy,
     evidence: opts.evidence ?? s.run.evidence,
+    trace: opts.trace ?? s.run.trace,
     headed: opts.headed ?? s.run.headed,
     overrides,
   };
@@ -147,7 +157,17 @@ export async function runScenario(loaded: LoadedScenario, opts: RunOptions): Pro
     ],
   };
 
-  const writeReport = () => writeFileSync(reportPath, JSON.stringify(redactor.deep(report), null, 2) + '\n', 'utf8');
+  const htmlPath = path.join(runDir, 'report.html');
+  const writeReport = () => {
+    const safe = redactor.deep(report);
+    writeFileSync(reportPath, JSON.stringify(safe, null, 2) + '\n', 'utf8');
+    if (opts.html !== false) writeFileSync(htmlPath, renderHtmlReport(safe), 'utf8');
+  };
+  if (cfg.trace !== 'off') {
+    report.limitations.push('Raw Playwright traces were enabled. Trace files are NOT redacted and may contain cookies, tokens, request bodies and page content; keep them local and private.');
+  }
+  report.config.trace = cfg.trace;
+  opts.onStart?.({ runId, runDir, seed, repeat, actors: s.actors.length });
 
   let browser: Browser | undefined;
   let interrupted = false;
@@ -239,7 +259,7 @@ export async function runScenario(loaded: LoadedScenario, opts: RunOptions): Pro
   report.exitCode = interrupted ? EXIT.INTERRUPTED : agg.exitCode;
   report.finishedAt = new Date().toISOString();
   writeReport();
-  return { report: redactor.deep(report), reportPath, runDir };
+  return { report: redactor.deep(report), reportPath, runDir, ...(opts.html !== false ? { htmlPath } : {}) };
 
   // ---------------------------------------------------------------- attempt
   async function runAttempt(index: number): Promise<{ attempt: AttemptResult; stop?: string }> {
@@ -308,6 +328,7 @@ export async function runScenario(loaded: LoadedScenario, opts: RunOptions): Pro
             policy,
             redactor,
             actionTimeoutMs: s.timing.actionTimeoutMs,
+            trace: cfg.trace !== 'off',
           }));
         }
       } catch (err) {
@@ -425,6 +446,23 @@ export async function runScenario(loaded: LoadedScenario, opts: RunOptions): Pro
       attempt.reasons = [`infrastructure error: ${redactor.text(firstLine(err))}`];
       return finish('infrastructure error; safe continuation cannot be established');
     } finally {
+      if (cfg.trace !== 'off') {
+        const keep = cfg.trace === 'always' || attempt.status !== 'PASS';
+        for (const [id, sess] of sessions) {
+          if (!keep) {
+            await sess.stopTrace().catch(() => undefined);
+            continue;
+          }
+          const [abs, rel] = evidence.file(index, `${safeName(id)}-trace.zip`);
+          try {
+            await sess.stopTrace(abs);
+            attempt.evidence.push(rel);
+            attempt.evidenceDir ??= evidence.attemptDirName(index);
+          } catch (err) {
+            attempt.notes.push(`trace for ${id} could not be saved: ${firstLine(err)}`);
+          }
+        }
+      }
       // Close contexts before any subsequent fixture reset (PRD §7.1).
       await Promise.all([...sessions.values()].map((x) => x.close()));
     }

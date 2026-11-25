@@ -4,7 +4,7 @@ import type { AssertionResult } from '../reporters/types.js';
 import type { ActorSession } from '../engine/sessions.js';
 import { firstLine } from '../engine/sessions.js';
 import { applyRuntime, applyRuntimeHeaders, httpRequest } from '../engine/http.js';
-import { compare, evaluatePointer, PointerError } from './compare.js';
+import { compare, evaluatePointer, expectedValue, PointerError } from './compare.js';
 
 export interface AssertionContext {
   sessions: Map<string, ActorSession>;
@@ -13,6 +13,8 @@ export interface AssertionContext {
   timeoutMs: number;
   pollMs: number;
 }
+
+const exp = (e: Record<string, unknown>) => ({ expected: expectedValue(e), comparison: e });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -30,6 +32,7 @@ async function evaluateUi(index: number, check: UiCheck, ctx: AssertionContext, 
   const count = check.count ?? { equals: 1 };
   const targets = check.actor ? [check.actor] : [...ctx.sessions.keys()];
   const source = check.actor ? `ui[${check.actor}]:"${text}"` : `ui:"${text}"`;
+  const label = check.label ? { label: check.label } : {};
   let observations = 0;
   let matched: string[] = [];
   let lastError: string | undefined;
@@ -47,12 +50,12 @@ async function evaluateUi(index: number, check: UiCheck, ctx: AssertionContext, 
     }
     const r = compare(matched.length, count);
     if (!lastError && r.pass) {
-      return { index, type: 'ui', source, actor: check.actor, expected: r.expected, observed: matched.length, matchedActors: matched, status: 'PASS', observations, observedAt: new Date().toISOString() };
+      return { index, type: 'ui', source, actor: check.actor, ...label, ...exp(r.expected), observed: matched.length, matchedActors: matched, status: 'PASS', observations, observedAt: new Date().toISOString() };
     }
     if (performance.now() + ctx.pollMs > deadline) {
-      if (lastError) return { index, type: 'ui', source, actor: check.actor, expected: r.expected, observed: null, status: 'ERROR', reason: lastError, observations };
+      if (lastError) return { index, type: 'ui', source, actor: check.actor, ...label, ...exp(r.expected), observed: null, status: 'ERROR', reason: lastError, observations };
       return {
-        index, type: 'ui', source, actor: check.actor, expected: r.expected, observed: matched.length, matchedActors: matched, status: 'FAIL',
+        index, type: 'ui', source, actor: check.actor, ...label, ...exp(r.expected), observed: matched.length, matchedActors: matched, status: 'FAIL',
         reason: `expected text visible on ${describeCount(count)} actor page(s), observed ${matched.length}${matched.length ? ` (${matched.join(', ')})` : ''}`,
         observations, observedAt: new Date().toISOString(),
       };
@@ -73,7 +76,7 @@ async function evaluateApi(index: number, check: ApiCheck, ctx: AssertionContext
   const p = applyRuntime(check.get, ctx.vars);
   const source = `GET ${p}#${check.pointer}${check.actor ? ` (as ${check.actor})` : ''}`;
   const pollMs = check.pollMs ?? ctx.pollMs;
-  const base = { index, type: 'api' as const, source, actor: check.actor, pointer: check.pointer };
+  const base = { index, type: 'api' as const, source, actor: check.actor, ...(check.label ? { label: check.label } : {}), pointer: check.pointer };
   let observations = 0;
   let last: { observed: unknown; pass: boolean; expected: Record<string, unknown>; reason?: string } | undefined;
   let lastError: string | undefined;
@@ -93,13 +96,13 @@ async function evaluateApi(index: number, check: ApiCheck, ctx: AssertionContext
       lastError = err instanceof PointerError ? err.message : firstLine(err);
     }
     if (last && !lastError && last.pass) {
-      return { ...base, expected: last.expected, observed: last.observed, status: 'PASS', observations, observedAt: new Date().toISOString() };
+      return { ...base, ...exp(last.expected), observed: last.observed, status: 'PASS', observations, observedAt: new Date().toISOString() };
     }
     if (performance.now() + pollMs > deadline) {
       if (lastError) {
-        return { ...base, expected: last?.expected ?? compare(undefined, check).expected, observed: null, status: 'ERROR', reason: `verification endpoint unavailable: ${lastError}`, observations };
+        return { ...base, ...exp(last?.expected ?? compare(undefined, check).expected), observed: null, status: 'ERROR', reason: `verification endpoint unavailable: ${lastError}`, observations };
       }
-      return { ...base, expected: last!.expected, observed: last!.observed, status: 'FAIL', reason: last!.reason, observations, observedAt: new Date().toISOString() };
+      return { ...base, ...exp(last!.expected), observed: last!.observed, status: 'FAIL', reason: last!.reason, observations, observedAt: new Date().toISOString() };
     }
     await sleep(pollMs);
   }

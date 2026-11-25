@@ -15,7 +15,6 @@
     "skills",
     "examples",
     "playground",
-    "assets/raceui-logo.png",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -32,7 +31,10 @@
     "test:all": "vitest run",
     "playground": "node playground/server.mjs",
     "logo": "python scripts/generate-logo.py",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "pretest:integration": "npm run build",
+    "bench": "node scripts/benchmark.mjs",
+    "licenses": "node scripts/check-licenses.mjs"
   },
   "keywords": [
     "race-condition",

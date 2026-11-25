@@ -12,8 +12,13 @@ export interface AssertionResult {
   /** Where the observation came from, e.g. `ui:"Booking successful"` or `GET /test-support/count#/count`. */
   source: string;
   actor?: string;
+  /** Human-readable name of the measured quantity (e.g. "committed bookings"). */
+  label?: string;
   pointer?: string;
+  /** Plain value for a single `equals`, otherwise the operator object. */
   expected: unknown;
+  /** Full comparison, e.g. `{ "equals": 1 }` or `{ "min": 0, "max": 1 }`. */
+  comparison: Record<string, unknown>;
   observed: unknown;
   status: CheckStatus;
   reason?: string;
@@ -114,6 +119,7 @@ export interface RunReport {
     repeat: number;
     seed: number;
     evidence: string;
+    trace?: string;
     stopOnFail: boolean;
     targetOrigin: string;
     allowOrigins: string[];

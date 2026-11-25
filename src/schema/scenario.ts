@@ -44,6 +44,8 @@ const raceAction = z.union([
 const actor = z.strictObject({
   id: z.string().regex(ID_RE, 'actor id must be 1-40 chars of letters, digits, "-" or "_"'),
   storageState: z.string().min(1).optional(),
+  /** Must be true when this actor intentionally shares a storage-state identity with another actor. */
+  sharedIdentity: z.boolean().default(false),
   prepare: z.array(prepareStep).max(LIMITS.maxPrepareSteps).default([]),
   race: raceAction,
 });
@@ -68,6 +70,7 @@ const apiCheck = z
     get: relPath,
     headers: headers.optional(),
     actor: z.string().optional(),
+    label: z.string().min(1).max(80).optional(),
     pollMs: z.number().int().min(25).max(10_000).optional(),
     ...comparison,
   })
@@ -93,6 +96,7 @@ const uiCheck = z
   .strictObject({
     text: z.string().min(1),
     actor: z.string().optional(),
+    label: z.string().min(1).max(80).optional(),
     count: countCheck.optional(),
   })
   .refine((v) => v.count !== undefined || v.actor !== undefined, {
@@ -178,6 +182,8 @@ const run = z.strictObject({
   seed: z.number().int().min(0).max(2 ** 32 - 1).optional(),
   browser: z.literal('chromium').default('chromium'),
   evidence: z.enum(['on-failure', 'always', 'none']).default('on-failure'),
+  /** Opt-in raw Playwright traces (may contain sensitive data; kept locally). */
+  trace: z.enum(['off', 'on-failure', 'always']).default('off'),
   headed: z.boolean().default(false),
 });
 

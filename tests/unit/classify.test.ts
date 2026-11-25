@@ -5,7 +5,7 @@ import type { AssertionResult } from '../../src/reporters/types.js';
 const ok = { dispatchSkewMs: 2, maxOffsetErrorMs: 2, thresholdMs: 50, quality: 'within-threshold' as const };
 const exceeded = { ...ok, dispatchSkewMs: 120, quality: 'exceeded' as const };
 const a = (type: 'ui' | 'api', status: AssertionResult['status']): AssertionResult => ({
-  index: 0, type, source: `${type}:x`, expected: { equals: 1 }, observed: 2, status, observations: 1, reason: 'r',
+  index: 0, type, source: `${type}:x`, expected: 1, comparison: { equals: 1 }, observed: 2, status, observations: 1, reason: 'r',
 });
 
 describe('classifyAttempt', () => {

@@ -64,3 +64,12 @@ export function describeExpected(e: Record<string, unknown>): string {
   if ('max' in e) parts.push(`<= ${String(e.max)}`);
   return parts.join(' and ');
 }
+
+/**
+ * Report form of an expectation: the plain value for a single `equals` (as in the PRD's report
+ * contract, e.g. `"expected": 1`), otherwise the operator object (e.g. `{ "max": 1 }`).
+ */
+export function expectedValue(e: Record<string, unknown>): unknown {
+  const keys = Object.keys(e);
+  return keys.length === 1 && keys[0] === 'equals' ? e.equals : e;
+}

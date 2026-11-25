@@ -49,6 +49,7 @@ assertions:
   timeoutMs: 3000
   checks:
     - ui:
+        label: successful booking confirmations
         text: Booking successful
         count:
           equals: 1
@@ -57,6 +58,7 @@ assertions:
         count:
           equals: 1
     - api:
+        label: committed bookings
         get: /test-support/seat-01/booking-count
         headers:
           Authorization: 'Bearer ${RACEUI_FIXTURE_TOKEN}'

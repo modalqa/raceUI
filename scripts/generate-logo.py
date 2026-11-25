@@ -71,7 +71,7 @@ def main():
     body += f"export const ICON_WIDTH = {width};\n\n"
     body += "export const ICON_COLOR: string[] = [\n" + "".join(f'  "{l}",\n' for l in color_lines) + "];\n\n"
     body += "export const ICON_PLAIN: string[] = [\n" + "".join(f'  "{l}",\n' for l in plain_lines) + "];\n"
-    OUT.write_text(body, encoding="utf-8")
+    OUT.write_text(body, encoding="utf-8", newline="\n")
     print(f"wrote {OUT} ({width}x{ROWS})")
     sys.stdout.reconfigure(encoding="utf-8")
     print("\n".join(plain_lines))

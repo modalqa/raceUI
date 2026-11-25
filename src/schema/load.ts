@@ -149,6 +149,19 @@ export function loadScenario(file: string, env: NodeJS.ProcessEnv = process.env)
   const dir = path.dirname(abs);
   const storageStates: Record<string, string> = {};
   const issues: string[] = [];
+  const byState = new Map<string, string[]>();
+  for (const a of parsed.scenario.actors) {
+    if (!a.storageState) continue;
+    const key = path.resolve(dir, a.storageState).toLowerCase();
+    byState.set(key, [...(byState.get(key) ?? []), a.id]);
+  }
+  for (const ids of byState.values()) {
+    if (ids.length < 2) continue;
+    const implicit = ids.filter((id) => !parsed.scenario.actors.find((a) => a.id === id)?.sharedIdentity);
+    if (implicit.length) {
+      issues.push(`actors ${ids.join(', ')} share one storageState; set sharedIdentity: true on each to confirm a same-account scenario`);
+    }
+  }
   for (const a of parsed.scenario.actors) {
     if (!a.storageState) continue;
     const p = path.resolve(dir, a.storageState);

@@ -38,7 +38,7 @@ export class ActorSession {
   static async create(
     browser: Browser,
     actor: Actor,
-    opts: { storageState?: string; policy: OriginPolicy; redactor: Redactor; actionTimeoutMs: number },
+    opts: { storageState?: string; policy: OriginPolicy; redactor: Redactor; actionTimeoutMs: number; trace?: boolean },
   ): Promise<ActorSession> {
     const context = await browser.newContext({
       storageState: opts.storageState,
@@ -46,6 +46,7 @@ export class ActorSession {
       acceptDownloads: false,
     });
     try {
+      if (opts.trace) await context.tracing.start({ screenshots: true, snapshots: true, title: actor.id });
       const page = await context.newPage();
       page.setDefaultTimeout(opts.actionTimeoutMs);
       page.setDefaultNavigationTimeout(Math.max(opts.actionTimeoutMs, 15_000));
@@ -204,6 +205,11 @@ export class ActorSession {
     if (candidates.length === 0) return { request: null, note: mode === 'filter' ? 'no request matched timing.requestFilter' : 'no state-changing request observed (configure timing.requestFilter to identify it)' };
     if (candidates.length > 1) return { request: candidates[0] ?? null, note: `ambiguous: ${candidates.length} requests matched (${mode}); first one shown` };
     return { request: candidates[0] ?? null, ...(mode === 'heuristic' ? { note: 'identified heuristically (single non-GET request after dispatch)' } : {}) };
+  }
+
+  /** Stops tracing; saves the trace zip when `file` is given, otherwise discards it. */
+  async stopTrace(file?: string): Promise<void> {
+    await this.context.tracing.stop(file ? { path: file } : undefined);
   }
 
   async screenshot(file: string): Promise<void> {

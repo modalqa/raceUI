@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.1.0] - 2026-11-25
 
+### Added (PRD completion)
+- FR-15: opt-in Playwright traces per actor (`run.trace` / `--trace off|on-failure|always`) with an
+  explicit unredacted-data warning; traces stay in the local run directory.
+- FR-16: static offline `report.html` written next to `report.json` (no server, no scripts, strict
+  CSP) and `raceui report <report.json>` to regenerate it.
+- `raceui install-skill --agent claude|codex|cursor [--global]` installs `SKILL.md` into the agent's
+  skill directory. Verified: Claude Code CLI discovers the installed skill (headless check).
+- Optional `label` on checks for PRD-style output ("Expected committed bookings: 1").
+- Report assertions now carry `expected` as the plain value for `equals` (PRD contract) plus the
+  full `comparison` object.
+- Explicit `sharedIdentity: true` is required when actors share one storage-state file (FR-02).
+- Terminal header (version, scenario, actors, attempts, seed) is printed before the attempts.
+- Docs: fixture setup, CI usage (any CI system, no workflow file shipped), troubleshooting,
+  benchmarks. Scripts: `npm run bench` (NFR-02/03) and `npm run licenses`.
+- More integration tests: action error, timing threshold, storage-state isolation, shared identity,
+  secret redaction, traces/HTML, CLI exit-code/JSON contract, `report` and `install-skill`.
+
 ### Added
 - `raceui` CLI with `init`, `validate`, `run` and `install-browser` commands, documented exit codes
   (0/1/2/3/130) and a terminal logo banner rendered from `assets/raceui-logo.png`.
